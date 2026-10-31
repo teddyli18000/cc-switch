@@ -1,0 +1,181 @@
+from pathlib import Path
+
+path = Path("src-tauri/src/commands/misc.rs")
+text = path.read_text()
+
+old = '''/// OpenCode Desktop ships its own `opencode-cli.exe`. That sidecar is owned and updated by
+/// the Desktop app, not by npm or the standalone OpenCode installer. #7027 makes this exact
+/// executable the launcher whenever a Desktop install is detected, so it is a stable source
+/// signal without depending on a vendor-specific absolute install directory.
+fn infer_install_source_for_tool(tool: &str, launcher: &Path, real: &Path) -> &'static str {
+    if tool == "opencode"
+        && launcher.file_name().is_some_and(|name| {
+            name.to_string_lossy()
+                .eq_ignore_ascii_case("opencode-cli.exe")
+        })
+    {
+        "desktop"
+    } else {
+        infer_install_source_for_install(launcher, real)
+    }
+}
+'''
+new = '''/// `windows_preferred_tool_executable` only selects `opencode-cli.exe` as the Desktop
+/// sidecar when it sits next to the GUI `opencode.exe`, either at the bundle root or under
+/// `resources/`. Mirror that relationship here instead of classifying every executable named
+/// `opencode-cli.exe` as Desktop-managed.
+fn is_opencode_desktop_sidecar(path: &Path) -> bool {
+    if !path.file_name().is_some_and(|name| {
+        name.to_string_lossy()
+            .eq_ignore_ascii_case("opencode-cli.exe")
+    }) {
+        return false;
+    }
+
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    if parent.join("opencode.exe").is_file() {
+        return true;
+    }
+
+    parent
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("resources"))
+        && parent
+            .parent()
+            .is_some_and(|root| root.join("opencode.exe").is_file())
+}
+
+fn infer_install_source_for_tool(tool: &str, launcher: &Path, real: &Path) -> &'static str {
+    if tool == "opencode" && is_opencode_desktop_sidecar(launcher) {
+        "desktop"
+    } else {
+        infer_install_source_for_install(launcher, real)
+    }
+}
+'''
+if old not in text:
+    raise SystemExit("source helper block not found")
+text = text.replace(old, new, 1)
+
+old_test = '''        #[test]
+        fn opencode_desktop_sidecar_is_desktop_managed() {
+            let desktop =
+                Path::new(r"C:\\Users\\me\\AppData\\Local\\OpenCode\\resources\\opencode-cli.exe");
+            assert_eq!(
+                infer_install_source_for_tool("opencode", desktop, desktop),
+                "desktop"
+            );
+
+            let standalone = Path::new(r"C:\\tools\\opencode.exe");
+            assert_eq!(
+                infer_install_source_for_tool("opencode", standalone, standalone),
+                "system"
+            );
+        }
+
+        #[test]
+        fn opencode_desktop_sidecar_is_not_upgraded_separately() {
+            let path = r"C:\\Users\\me\\AppData\\Local\\OpenCode\\resources\\opencode-cli.exe";
+            let install = ToolInstallation {
+                path: path.to_string(),
+                version: Some("1.0.0".to_string()),
+                runnable: true,
+                error: None,
+                exited_with_error: false,
+                source: "desktop".to_string(),
+                is_path_default: true,
+                real: Path::new(path).to_path_buf(),
+            };
+            assert_eq!(
+                resolve_update_command("opencode", &[install]),
+                UpdateCommand::Unmanaged
+            );
+        }
+'''
+new_test = '''        #[test]
+        fn opencode_desktop_sidecar_is_desktop_managed_only_in_desktop_layout() {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            let gui = root.join("opencode.exe");
+            std::fs::write(&gui, b"").unwrap();
+
+            let root_sidecar = root.join("opencode-cli.exe");
+            std::fs::write(&root_sidecar, b"").unwrap();
+            assert_eq!(
+                infer_install_source_for_tool("opencode", &root_sidecar, &root_sidecar),
+                "desktop"
+            );
+
+            let resources = root.join("resources");
+            std::fs::create_dir(&resources).unwrap();
+            let resources_sidecar = resources.join("opencode-cli.exe");
+            std::fs::write(&resources_sidecar, b"").unwrap();
+            assert_eq!(
+                infer_install_source_for_tool("opencode", &resources_sidecar, &resources_sidecar),
+                "desktop"
+            );
+
+            let standalone_dir = dir.path().join("standalone");
+            std::fs::create_dir(&standalone_dir).unwrap();
+            let standalone = standalone_dir.join("opencode-cli.exe");
+            std::fs::write(&standalone, b"").unwrap();
+            assert_eq!(
+                infer_install_source_for_tool("opencode", &standalone, &standalone),
+                "system"
+            );
+        }
+
+        #[test]
+        fn opencode_desktop_sidecar_is_not_upgraded_separately() {
+            let path = Path::new("desktop/opencode-cli.exe");
+            let install = ToolInstallation {
+                path: path.display().to_string(),
+                version: Some("1.0.0".to_string()),
+                runnable: true,
+                error: None,
+                exited_with_error: false,
+                source: "desktop".to_string(),
+                is_path_default: true,
+                real: path.to_path_buf(),
+            };
+            assert_eq!(
+                resolve_update_command("opencode", &[install]),
+                UpdateCommand::Unmanaged
+            );
+        }
+
+        #[test]
+        fn non_default_desktop_install_does_not_block_default_standalone_upgrade() {
+            let desktop = ToolInstallation {
+                path: "desktop/opencode-cli.exe".to_string(),
+                version: Some("1.0.0".to_string()),
+                runnable: true,
+                error: None,
+                exited_with_error: false,
+                source: "desktop".to_string(),
+                is_path_default: false,
+                real: Path::new("desktop/opencode-cli.exe").to_path_buf(),
+            };
+            let standalone = ToolInstallation {
+                path: "/tmp/node_modules/opencode-ai/bin/opencode".to_string(),
+                version: Some("1.0.0".to_string()),
+                runnable: true,
+                error: None,
+                exited_with_error: false,
+                source: "system".to_string(),
+                is_path_default: true,
+                real: Path::new("/tmp/node_modules/opencode-ai/bin/opencode").to_path_buf(),
+            };
+
+            assert_ne!(
+                resolve_update_command("opencode", &[desktop, standalone]),
+                UpdateCommand::Unmanaged
+            );
+        }
+'''
+if old_test not in text:
+    raise SystemExit("test block not found")
+text = text.replace(old_test, new_test, 1)
+path.write_text(text)
