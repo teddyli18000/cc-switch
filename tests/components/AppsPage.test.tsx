@@ -2084,6 +2084,9 @@ describe("AppsPage concurrent CLI upgrades", () => {
     expect(
       card("OpenCode").queryByRole("button", { name: "settings.toolUpdate" }),
     ).toBeNull();
+    expect(
+      card("OpenCode").getByText("settings.toolUpgradeDesktopManagedDetail"),
+    ).toBeInTheDocument();
 
     fireEvent.click(updateAllButton());
     await waitFor(() => expect(isReady("Claude Code")).toBe(true));
@@ -2095,6 +2098,30 @@ describe("AppsPage concurrent CLI upgrades", () => {
     expect(
       mocks.runToolLifecycleAction.mock.calls.flatMap(([tools]) => tools),
     ).not.toContain("opencode");
+  });
+
+  it("explains why an outdated unmanaged install is skipped", async () => {
+    outdated.clear();
+    outdated.add("claude");
+    mocks.listToolInstallations.mockImplementation(async (tools: string[]) =>
+      tools.map((tool) =>
+        tool === "claude"
+          ? report(tool, { unmanaged: true, command: "", anchored: false })
+          : report(tool),
+      ),
+    );
+
+    await renderApps();
+    await waitFor(() =>
+      expect(
+        card("Claude Code").getByText("settings.toolUpgradeUnmanagedDetail"),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      card("Claude Code").queryByRole("button", {
+        name: "settings.toolUpdate",
+      }),
+    ).toBeNull();
   });
 
   it("withholds the upgrade when the new version needs a newer Node and leaves it out of update all", async () => {

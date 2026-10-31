@@ -896,6 +896,19 @@ function ToolRow({
       </p>
     ) : null;
 
+  const unmanagedLine =
+    !isVersionLoading && isOutdated && report?.unmanaged ? (
+      <p className="flex items-start gap-1 text-caption text-warning-text">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        {defaultInstall?.source === "desktop"
+          ? t("settings.toolUpgradeDesktopManagedDetail")
+          : t("settings.toolUpgradeUnmanagedDetail", {
+              tool: toolDisplayName(tool),
+              path: defaultInstall?.path ?? "",
+            })}
+      </p>
+    ) : null;
+
   const conflictList =
     expanded && installs && installs.length > 1 ? (
       <div className="space-y-1.5 rounded-control bg-warning-soft p-2.5">
@@ -913,10 +926,11 @@ function ToolRow({
     ) : null;
 
   const footer =
-    wslControls || errorLine || nodeLine || conflictList ? (
+    wslControls || errorLine || nodeLine || unmanagedLine || conflictList ? (
       <div className="space-y-2">
         {errorLine}
         {nodeLine}
+        {unmanagedLine}
         {wslControls}
         {conflictList}
       </div>
