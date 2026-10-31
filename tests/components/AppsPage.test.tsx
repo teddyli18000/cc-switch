@@ -2042,6 +2042,13 @@ describe("AppsPage concurrent CLI upgrades", () => {
 
     expect(screen.getByTestId("updates-available")).toHaveTextContent("false");
     expect(mocks.listToolInstallations).toHaveBeenCalledWith(["opencode"]);
+
+    mocks.listToolInstallations.mockClear();
+    await renderApps();
+    await waitFor(() => expect(mocks.listToolInstallations).toHaveBeenCalled());
+    expect(
+      mocks.listToolInstallations.mock.calls.some(([tools]) => tools.length > 1),
+    ).toBe(true);
   });
 
   it("does not offer a separate upgrade for OpenCode Desktop's bundled CLI", async () => {

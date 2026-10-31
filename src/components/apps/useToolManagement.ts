@@ -561,7 +561,11 @@ export function useToolManagement() {
   // 安装分布：路径、来源（npm / 原生 / Homebrew…）、有没有多处安装。只在本机探测，不联网。
   const loadInstallations = useCallback(
     async (options?: { force?: boolean }) => {
-      if (!options?.force && toolManagementState.installReports) return;
+      const currentReports = toolManagementState.installReports;
+      const hasCompleteReports =
+        currentReports !== null &&
+        TOOL_NAMES.every((toolName) => currentReports[toolName] !== undefined);
+      if (!options?.force && hasCompleteReports) return;
       try {
         const reports = await settingsApi.listToolInstallations([
           ...TOOL_NAMES,
