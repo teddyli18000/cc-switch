@@ -1987,6 +1987,63 @@ describe("AppsPage concurrent CLI upgrades", () => {
     ).toBeEnabled();
   });
 
+  it("waits for the OpenCode install source before offering an upgrade", async () => {
+    outdated.clear();
+    outdated.add("opencode");
+    const pending = deferred<ToolInstallationReport[]>();
+    let requestedTools: string[] = [];
+    mocks.listToolInstallations.mockImplementationOnce((tools: string[]) => {
+      requestedTools = tools;
+      return pending.promise;
+    });
+
+    await renderApps();
+    await waitFor(() =>
+      expect(card("OpenCode").getByText("1.0.0")).toBeInTheDocument(),
+    );
+    expect(
+      card("OpenCode").queryByRole("button", { name: "settings.toolUpdate" }),
+    ).toBeNull();
+
+    await act(async () => {
+      pending.resolve(requestedTools.map((tool) => report(tool)));
+      await pending.promise;
+    });
+
+    await waitFor(() => expect(updateButton("OpenCode")).toBeEnabled());
+  });
+
+  it("does not advertise a Desktop-managed OpenCode update from the background check", async () => {
+    outdated.clear();
+    outdated.add("opencode");
+    mocks.listToolInstallations.mockImplementation(async (tools: string[]) =>
+      tools.map((tool) =>
+        report(tool, {
+          unmanaged: tool === "opencode",
+          command: tool === "opencode" ? "" : `${tool} update`,
+        }),
+      ),
+    );
+
+    const { checkToolUpdatesInBackground, useToolUpdatesAvailable } =
+      await import("@/components/apps/useToolManagement");
+    await act(async () => {
+      await checkToolUpdatesInBackground();
+    });
+
+    function UpdateIndicator() {
+      return (
+        <span data-testid="updates-available">
+          {String(useToolUpdatesAvailable())}
+        </span>
+      );
+    }
+    render(<UpdateIndicator />);
+
+    expect(screen.getByTestId("updates-available")).toHaveTextContent("false");
+    expect(mocks.listToolInstallations).toHaveBeenCalledWith(["opencode"]);
+  });
+
   it("does not offer a separate upgrade for OpenCode Desktop's bundled CLI", async () => {
     outdated.add("opencode");
     mocks.listToolInstallations.mockImplementation(async (tools: string[]) =>

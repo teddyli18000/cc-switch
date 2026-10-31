@@ -321,12 +321,39 @@ export async function checkToolUpdatesInBackground(): Promise<void> {
       (tool) => latestToolVersionRequests.get(tool.name) === requestId,
     );
     if (current.length === 0) return;
+    let nextInstallReports = toolManagementState.installReports;
+    const outdatedOpenCode = current.find(
+      (tool) =>
+        tool.name === "opencode" &&
+        isUpdateAvailable(tool.version, tool.latest_version),
+    );
+    if (outdatedOpenCode && !nextInstallReports?.opencode) {
+      try {
+        const [report] = await settingsApi.listToolInstallations(["opencode"]);
+        if (report) {
+          nextInstallReports = {
+            ...(nextInstallReports ?? {}),
+            opencode: report,
+          };
+        }
+      } catch (error) {
+        console.error(
+          "[useToolManagement] background OpenCode install probe failed",
+          error,
+        );
+        // Probe failure should fall back to the historical UX rather than hiding
+        // updates forever. Execution still re-checks the update plan in Rust.
+        if (nextInstallReports === null) nextInstallReports = {};
+      }
+    }
+
     const latest = toolManagementState.toolVersionsCache;
     updateToolManagementState({
       toolVersionsCache: {
         data: mergeToolVersions(latest?.data ?? [], current),
         at: Date.now(),
       },
+      installReports: nextInstallReports,
     });
   } catch (error) {
     console.error("[useToolManagement] Background update check failed", error);
@@ -342,6 +369,7 @@ export function useToolUpdatesAvailable(): boolean {
   return (
     toolVersionsCache?.data.some(
       (tool) =>
+        !(tool.name === "opencode" && installReports === null) &&
         !installReports?.[tool.name as ToolName]?.unmanaged &&
         isUpdateAvailable(tool.version, tool.latest_version),
     ) ?? false
@@ -395,6 +423,7 @@ export function useToolManagement() {
         return (
           !busyTools.has(toolName) &&
           !loadingTools[toolName] &&
+          !(toolName === "opencode" && installReports === null) &&
           !installReports?.[toolName]?.unmanaged &&
           !tool?.update_blocked_by_node &&
           isUpdateAvailable(tool?.version, tool?.latest_version)
@@ -547,6 +576,11 @@ export function useToolManagement() {
           "[useToolManagement] probeToolInstallations failed",
           error,
         );
+        // Mark the initial probe as finished so an unavailable diagnostics call
+        // does not permanently suppress OpenCode's historical upgrade fallback.
+        if (toolManagementState.installReports === null) {
+          updateToolManagementState({ installReports: {} });
+        }
       }
     },
     [],

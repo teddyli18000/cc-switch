@@ -729,6 +729,8 @@ function ToolRow({
     (tools.isLoadingTools && !tools.toolVersionByName.has(tool));
   const isOutdated = isUpdateAvailable(info?.version, info?.latest_version);
   const nodeGap = isOutdated ? info?.update_blocked_by_node : null;
+  const waitingForOpenCodeInstallReport =
+    tool === "opencode" && tools.installReports === null;
   const broken = Boolean(info?.installed_but_broken);
   const isBusy = tools.busyTools.has(tool);
   const busyAction = tools.busyTools.get(tool);
@@ -739,7 +741,10 @@ function ToolRow({
       ? null
       : !info?.version
         ? "install"
-        : isOutdated && !nodeGap && !report?.unmanaged
+        : isOutdated &&
+            !nodeGap &&
+            !waitingForOpenCodeInstallReport &&
+            !report?.unmanaged
           ? "update"
           : null);
   const sourceLabel = defaultInstall
